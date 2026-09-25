@@ -1,42 +1,169 @@
-# Task Manager (React)
+# Task Manager
 
-**🔗 Live App:** https://rathunuu.github.io/task-manager-final/
+A full-stack Task Manager application built with React, Node.js, Express, MongoDB, and Gemini AI.
 
-This is the **one, final, live** Task Manager app — built with React, Tailwind CSS, login/signup, an admin dashboard, and task assignment between users.
+## 🔗 Links
 
-## ⚠️ Older versions are retired
+**Live Frontend:**
+https://rathunuu.github.io/task-manager-final/
 
-Two earlier versions of this project were built while learning:
-
-- `task-manager` (original vanilla JS version)
-- `task-manager-v2` / `task-manager-react` (vanilla JS with login/admin added)
-
-**Both are retired.** Their code stays in git history for reference, but nothing new goes into them. All future work happens in this repo only.
+**GitHub Repository:**
+https://github.com/Rathunuu/task-manager-final
 
 ## ✨ Features
 
-- **Login & Signup** — the first account created automatically becomes Admin; everyone else signs up as a regular User
-- **Admin Dashboard** — Admins can add new users and assign tasks directly to them (with category, priority, status, and due date)
-- **Task Manager** — projects, list & Kanban board views, subtasks, notes, drag-and-drop reordering, search/filter/sort, JSON export/import
-- **Role-based UI** — the Admin Dashboard link only renders for admins, using React conditional rendering (`{role === "admin" && <button>...}`) instead of a CSS `hidden` attribute, so the link can never be shown by a stray CSS rule
+### Frontend
+
+* Login and Signup
+* Admin dashboard
+* Task creation and management
+* Project management
+* List and Kanban board views
+* Search, filter, and sort
+* Task assignment
+* Subtasks and notes
+* Drag-and-drop task ordering
+* JSON import/export
+* Responsive UI
+
+### Backend
+
+* Node.js and Express REST API
+* MongoDB Atlas database
+* Mongoose models for Users, Projects, and Tasks
+* JWT authentication
+* Protected API routes
+* bcrypt password hashing
+* Zod request validation
+
+### AI Task Parser
+
+Users can enter a task in normal English.
+
+Example:
+
+> Finish the homepage design by 2026-09-25 with high priority
+
+The Gemini AI parser extracts:
+
+* Task title
+* Due date
+* Priority
+
+The parsed task is then created and saved directly in MongoDB.
 
 ## 🛠️ Tech Stack
 
-- React + Vite
-- Tailwind CSS (v4, via `@tailwindcss/vite`)
-- Browser `localStorage` / `sessionStorage` for data and session (no backend yet)
+### Frontend
 
-## 🚀 Running locally
+* React
+* Vite
+* Tailwind CSS
+
+### Backend
+
+* Node.js
+* Express.js
+* MongoDB Atlas
+* Mongoose
+* JWT
+* bcrypt
+* Zod
+
+### AI
+
+* Google Gemini API
+
+## 📁 Project Structure
+
+```text
+task-manager-final/
+│
+├── server/
+│   ├── config/
+│   ├── middleware/
+│   ├── models/
+│   ├── routes/
+│   ├── validators/
+│   └── server.js
+│
+├── task-manager-react/
+├── react-exercise/
+├── index.html
+├── package.json
+└── README.md
+```
+
+## 🚀 Running Locally
+
+### Frontend
 
 ```bash
 npm install
 npm run dev
 ```
 
-## 📦 Deploying
+Frontend runs on:
 
-```bash
-npm run deploy
+```text
+http://localhost:5173
 ```
 
-This builds the app and publishes the `dist` folder to the `gh-pages` branch, which GitHub Pages serves.
+### Backend
+
+Open another terminal:
+
+```bash
+cd server
+npm install
+npm run dev
+```
+
+Backend runs on:
+
+```text
+http://localhost:5000
+```
+
+## 🔐 Environment Variables
+
+Create a `.env` file inside the `server` folder.
+
+```env
+MONGO_URI=your_mongodb_connection_string
+JWT_SECRET=your_jwt_secret
+GEMINI_API_KEY=your_gemini_api_key
+PORT=5000
+```
+
+Do not upload the `.env` file to GitHub.
+
+## 🧪 Backend Testing
+
+The backend APIs were tested using Postman.
+
+Tested features include:
+
+* User Signup
+* User Login
+* JWT authentication
+* Protected routes
+* Project creation
+* Task creation
+* AI task parsing
+* MongoDB task creation
+
+## 📌 Week 7 Completion
+
+Week 7 focuses on converting the React Task Manager into a full-stack application with:
+
+* MongoDB database
+* Authentication
+* JWT authorization
+* Password hashing
+* Zod validation
+* Protected routes
+* Gemini AI task parser
+* Real database task creation
+
+The AI parser successfully converts a plain-English task sentence into structured task data and saves the task to MongoDB.

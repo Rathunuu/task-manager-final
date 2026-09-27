@@ -1,0 +1,6 @@
+task-manager-react/node_modules/
+task-manager-react/dist/
+node_modules
+
+server/.env
+dist

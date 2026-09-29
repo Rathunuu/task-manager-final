@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { GoogleLogin } from "@react-oauth/google";
 import { apiRequest } from "./api";
 import { saveAuth } from "./auth";
 
@@ -38,6 +39,28 @@ function LoginPage({ onLoginSuccess, onSwitchToSignup }) {
     }
   }
 
+  async function handleGoogleSuccess(credentialResponse) {
+    setError("");
+    setLoading(true);
+
+    try {
+      const data = await apiRequest("/auth/google", {
+        method: "POST",
+        body: JSON.stringify({
+          credential: credentialResponse.credential,
+        }),
+      });
+
+      saveAuth(data);
+
+      onLoginSuccess(data.user);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
@@ -58,6 +81,19 @@ function LoginPage({ onLoginSuccess, onSwitchToSignup }) {
             {error}
           </div>
         )}
+
+        <div className="mb-4 flex justify-center">
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={() => setError("Google login failed. Try again.")}
+          />
+        </div>
+
+        <div className="flex items-center gap-3 mb-4">
+          <div className="h-px flex-1 bg-slate-200" />
+          <span className="text-xs text-slate-400 font-medium">OR</span>
+          <div className="h-px flex-1 bg-slate-200" />
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

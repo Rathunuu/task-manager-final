@@ -33,7 +33,7 @@ jobs:
         working-directory: task-manager-react
         env:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
-        run: npm run build -- --base=/task-manager/task-manager-react/
+        run: npm run build
 
       - name: Prepare Pages folder
         run: |

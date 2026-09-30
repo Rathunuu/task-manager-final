@@ -1,3 +1,4 @@
+```yaml
 name: Deploy React App
 
 on:
@@ -31,6 +32,8 @@ jobs:
 
       - name: Build React app
         working-directory: task-manager-react
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
         run: npm run build -- --base=/task-manager/task-manager-react/
 
       - name: Prepare Pages folder
@@ -57,3 +60,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+```

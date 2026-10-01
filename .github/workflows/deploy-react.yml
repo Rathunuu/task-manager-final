@@ -1,3 +1,4 @@
+```yaml
 name: Deploy React App
 
 on:
@@ -37,10 +38,9 @@ jobs:
 
       - name: Prepare Pages folder
         run: |
+          rm -rf dist
           mkdir -p dist
-          cp index.html app.js render.js storage.js style.css dist/
-          mkdir -p dist/task-manager-react
-          cp -r task-manager-react/dist/* dist/task-manager-react/
+          cp -r task-manager-react/dist/* dist/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -56,3 +56,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
+```

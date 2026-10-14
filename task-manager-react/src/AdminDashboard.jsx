@@ -3,12 +3,32 @@ import { apiRequest } from "./api";
 
 function AdminDashboard({ currentAdmin, onBack, onLogout }) {
   const [users, setUsers] = useState([]);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
+  const loadUsers = () => {
     apiRequest("/auth/users")
       .then(setUsers)
       .catch(() => setUsers([]));
+  };
+
+  useEffect(() => {
+    loadUsers();
   }, []);
+
+  const toggleRole = async (u) => {
+    const newRole = u.role === "admin" ? "user" : "admin";
+    setError("");
+
+    try {
+      await apiRequest(`/auth/users/${u._id}/role`, {
+        method: "PATCH",
+        body: JSON.stringify({ role: newRole }),
+      });
+      loadUsers();
+    } catch (err) {
+      setError(err.message || "Failed to update role");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -22,7 +42,7 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
               Admin Dashboard
             </h1>
             <p className="text-slate-500 text-sm mt-1">
-              View users.
+              View users and manage admins.
             </p>
           </div>
 
@@ -54,6 +74,10 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
             All Users
           </h2>
 
+          {error && (
+            <p className="text-sm text-red-600 mt-3">{error}</p>
+          )}
+
           <div className="space-y-3 mt-4">
             {users.length === 0 && (
               <p className="text-sm text-slate-400">No users yet.</p>
@@ -68,15 +92,31 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
                   <strong className="text-slate-800 text-sm">{u.name}</strong>
                   <p className="text-xs text-slate-500">{u.email}</p>
                 </div>
-                <span
-                  className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${
-                    u.role === "admin"
-                      ? "bg-orange-100 text-orange-600"
-                      : "bg-blue-100 text-blue-600"
-                  }`}
-                >
-                  {u.role}
-                </span>
+
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                      u.role === "admin"
+                        ? "bg-orange-100 text-orange-600"
+                        : "bg-blue-100 text-blue-600"
+                    }`}
+                  >
+                    {u.role}
+                  </span>
+
+                  {u._id !== currentAdmin?.id && (
+                    <button
+                      onClick={() => toggleRole(u)}
+                      className={`text-xs font-semibold px-3 py-1 rounded-lg border transition ${
+                        u.role === "admin"
+                          ? "border-red-200 text-red-600 hover:bg-red-50"
+                          : "border-blue-200 text-blue-600 hover:bg-blue-50"
+                      }`}
+                    >
+                      {u.role === "admin" ? "Remove Admin" : "Make Admin"}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

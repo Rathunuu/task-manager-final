@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import User from "../models/user.js";
 import validate from "../middleware/validate.js";
+import authMiddleware, { adminOnly } from "../middleware/auth.js";
 import {
     signupSchema,
     loginSchema
@@ -172,14 +173,70 @@ router.post("/google", async (req, res) => {
     }
 });
 
-// Get all users (for admin dashboard)
-router.get("/users", async (req, res) => {
+// Get all users (admin only)
+router.get("/users", authMiddleware, adminOnly, async (req, res) => {
     try {
         const users = await User.find({}, "name email role");
         res.json(users);
     } catch (error) {
         res.status(500).json({
             message: "Failed to fetch users",
+            error: error.message
+        });
+    }
+});
+
+// Change user role: admin <-> user (admin only)
+router.patch("/users/:id/role", authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const { role } = req.body;
+
+        if (!["user", "admin"].includes(role)) {
+            return res.status(400).json({
+                message: "Invalid role"
+            });
+        }
+
+        // Own role maatha koodathu
+        if (req.params.id === req.user.userId) {
+            return res.status(400).json({
+                message: "You can't change your own role"
+            });
+        }
+
+        const targetUser = await User.findById(req.params.id);
+
+        if (!targetUser) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        // Kadaisi admin ah remove panna koodathu
+        if (targetUser.role === "admin" && role === "user") {
+            const adminCount = await User.countDocuments({ role: "admin" });
+            if (adminCount <= 1) {
+                return res.status(400).json({
+                    message: "At least one admin is required"
+                });
+            }
+        }
+
+        targetUser.role = role;
+        await targetUser.save();
+
+        res.json({
+            message: "Role updated successfully",
+            user: {
+                id: targetUser._id,
+                name: targetUser.name,
+                email: targetUser.email,
+                role: targetUser.role
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to update role",
             error: error.message
         });
     }

@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import User from "../models/user.js";
 import validate from "../middleware/validate.js";
-import authMiddleware, { adminOnly } from "../middleware/auth.js";
+import authMiddleware, { adminOnly } from "../middleware/authMiddleware.js";
 import {
     signupSchema,
     loginSchema

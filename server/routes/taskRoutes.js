@@ -1,6 +1,7 @@
 import express from "express";
 import Task from "../models/Task.js";
-import authMiddleware from "../middleware/authMiddleware.js";
+import User from "../models/user.js";
+import authMiddleware, { adminOnly } from "../middleware/authMiddleware.js";
 import validate from "../middleware/validate.js";
 import {
     taskCreateSchema,
@@ -8,6 +9,76 @@ import {
 } from "../validators/taskvalidator.js";
 
 const router = express.Router();
+
+// ADMIN: all users with their tasks + progress
+router.get("/admin/overview", authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const users = await User.find({}, "name email role");
+        const tasks = await Task.find()
+            .populate("project", "name")
+            .sort({ createdAt: -1 });
+
+        const overview = users.map((u) => {
+            const userTasks = tasks.filter(
+                (t) => String(t.assignedTo) === String(u._id)
+            );
+            const completed = userTasks.filter(
+                (t) => t.status === "completed"
+            ).length;
+
+            return {
+                _id: u._id,
+                name: u.name,
+                email: u.email,
+                role: u.role,
+                total: userTasks.length,
+                completed,
+                tasks: userTasks
+            };
+        });
+
+        res.json(overview);
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to fetch overview",
+            error: error.message
+        });
+    }
+});
+
+// ADMIN: assign a task to a user
+router.post("/admin/assign", authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const { title, description, dueDate, priority, project, assignedTo } =
+            req.body;
+
+        if (!title || !project || !assignedTo) {
+            return res.status(400).json({
+                message: "title, project and assignedTo are required"
+            });
+        }
+
+        const task = await Task.create({
+            title,
+            description,
+            dueDate,
+            priority,
+            project,
+            assignedTo,
+            createdBy: req.user.userId
+        });
+
+        res.status(201).json({
+            message: "Task assigned successfully",
+            task
+        });
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to assign task",
+            error: error.message
+        });
+    }
+});
 
 // Get all tasks of logged-in user
 router.get("/", authMiddleware, async (req, res) => {
@@ -72,7 +143,7 @@ router.post(
     }
 );
 
-// Update task
+// Update task (creator OR assigned user)
 router.put(
     "/:id",
     authMiddleware,
@@ -92,7 +163,10 @@ router.put(
             const task = await Task.findOneAndUpdate(
                 {
                     _id: req.params.id,
-                    createdBy: req.user.userId
+                    $or: [
+                        { createdBy: req.user.userId },
+                        { assignedTo: req.user.userId }
+                    ]
                 },
                 {
                     title,

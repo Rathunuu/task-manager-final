@@ -1,30 +1,46 @@
-import mongoose from "mongoose";
+// ADMIN: assign a task to a user
+router.post("/admin/assign", authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const { title, description, dueDate, priority, assignedTo } = req.body;
 
-const projectSchema = new mongoose.Schema(
-    {
-        name: {
-            type: String,
-            required: true,
-            trim: true
-        },
-
-        description: {
-            type: String,
-            default: "",
-            trim: true
-        },
-
-        owner: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "User",
-            required: true
+        if (!title || !assignedTo) {
+            return res.status(400).json({
+                message: "title and assignedTo are required"
+            });
         }
-    },
-    {
-        timestamps: true
+
+        // User oda "Assigned by Admin" project find pannu, illa na create pannu
+        let project = await Project.findOne({
+            owner: assignedTo,
+            name: "Assigned by Admin"
+        });
+
+        if (!project) {
+            project = await Project.create({
+                name: "Assigned by Admin",
+                description: "Tasks assigned by admin",
+                owner: assignedTo
+            });
+        }
+
+        const task = await Task.create({
+            title,
+            description,
+            dueDate,
+            priority,
+            project: project._id,
+            assignedTo,
+            createdBy: req.user.userId
+        });
+
+        res.status(201).json({
+            message: "Task assigned successfully",
+            task
+        });
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to assign task",
+            error: error.message
+        });
     }
-);
-
-const Project = mongoose.model("Project", projectSchema);
-
-export default Project;
+});

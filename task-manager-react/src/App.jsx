@@ -593,38 +593,18 @@ function App() {
   // ---------- REORDER ----------
 
   function handleReorder(orderedIds) {
-    const projectTasksMap =
-      new Map(
-        tasks
-          .filter(
-            (task) =>
-              task.projectId ===
-              activeProjectId
-          )
-          .map((task) => [
-            task.id,
-            task,
-          ])
-      );
+    setSortBy("manual");
 
-    const reordered =
-      orderedIds
-        .map((id) =>
-          projectTasksMap.get(id)
-        )
-        .filter(Boolean);
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    const idSet = new Set(orderedIds);
 
-    const otherTasks =
-      tasks.filter(
-        (task) =>
-          task.projectId !==
-          activeProjectId
-      );
+    const reordered = orderedIds
+      .map((id) => byId.get(id))
+      .filter(Boolean);
 
-    setTasks([
-      ...otherTasks,
-      ...reordered,
-    ]);
+    const rest = tasks.filter((task) => !idSet.has(task.id));
+
+    setTasks([...rest, ...reordered]);
   }
 
   // ---------- EXPORT ----------
@@ -888,6 +868,8 @@ function App() {
   visibleTasks =
     [...visibleTasks].sort(
       (a, b) => {
+        if (sortBy === "manual") return 0;
+
         if (sortBy === "az") {
           return a.text.localeCompare(
             b.text

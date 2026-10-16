@@ -5,7 +5,7 @@ export const taskCreateSchema = z.object({
     description: z.string().optional().default(""),
     dueDate: z.string().optional().nullable(),
     priority: z.enum(["low", "medium", "high"]).optional().default("medium"),
-    status: z.enum(["todo", "in-progress", "completed"]).optional().default("todo"),
+    status: z.enum(["todo", "in-progress", "in-review", "completed"]).optional().default("todo"),
     project: z.string().min(1, "Project ID is required"),
     assignedTo: z.string().optional().nullable()
 });
@@ -15,7 +15,7 @@ export const taskUpdateSchema = z.object({
     description: z.string().optional().default(""),
     dueDate: z.string().optional().nullable(),
     priority: z.enum(["low", "medium", "high"]).optional().default("medium"),
-    status: z.enum(["todo", "in-progress", "completed"]).optional().default("todo"),
+    status: z.enum(["todo", "in-progress", "in-review", "completed"]).optional().default("todo"),
     project: z.string().min(1, "Project ID is required"),
     assignedTo: z.string().optional().nullable()
 });

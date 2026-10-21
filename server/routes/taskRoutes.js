@@ -1,6 +1,7 @@
 import express from "express";
 import Task from "../models/Task.js";
 import User from "../models/user.js";
+import Project from "../models/project.js";
 import authMiddleware, { adminOnly } from "../middleware/authMiddleware.js";
 import validate from "../middleware/validate.js";
 import {
@@ -49,12 +50,25 @@ router.get("/admin/overview", authMiddleware, adminOnly, async (req, res) => {
 // ADMIN: assign a task to a user
 router.post("/admin/assign", authMiddleware, adminOnly, async (req, res) => {
     try {
-        const { title, description, dueDate, priority, project, assignedTo } =
-            req.body;
+        const { title, description, dueDate, priority, assignedTo } = req.body;
 
-        if (!title || !project || !assignedTo) {
+        if (!title || !assignedTo) {
             return res.status(400).json({
-                message: "title, project and assignedTo are required"
+                message: "title and assignedTo are required"
+            });
+        }
+
+        // User oda "Assigned by Admin" project find pannu, illa na create pannu
+        let project = await Project.findOne({
+            owner: assignedTo,
+            name: "Assigned by Admin"
+        });
+
+        if (!project) {
+            project = await Project.create({
+                name: "Assigned by Admin",
+                description: "Tasks assigned by admin",
+                owner: assignedTo
             });
         }
 
@@ -63,7 +77,7 @@ router.post("/admin/assign", authMiddleware, adminOnly, async (req, res) => {
             description,
             dueDate,
             priority,
-            project,
+            project: project._id,
             assignedTo,
             createdBy: req.user.userId
         });

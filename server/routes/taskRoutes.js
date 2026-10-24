@@ -52,7 +52,6 @@ router.post("/admin/assign", authMiddleware, adminOnly, async (req, res) => {
     try {
         const { title, description, dueDate, priority, assignedTo } = req.body;
 
-        // assignedTo array ah or single id ah irukkalaam
         const userIds = Array.isArray(assignedTo)
             ? assignedTo
             : assignedTo
@@ -68,7 +67,6 @@ router.post("/admin/assign", authMiddleware, adminOnly, async (req, res) => {
         const createdTasks = [];
 
         for (const userId of userIds) {
-            // Ovvoru user ku "Assigned by Admin" project find pannu, illa na create pannu
             let project = await Project.findOne({
                 owner: userId,
                 name: "Assigned by Admin"
@@ -142,6 +140,7 @@ router.post(
                 dueDate,
                 priority,
                 status,
+                category,
                 project,
                 assignedTo
             } = req.body;
@@ -152,6 +151,7 @@ router.post(
                 dueDate,
                 priority,
                 status,
+                category,
                 project,
                 assignedTo: assignedTo || null,
                 createdBy: req.user.userId
@@ -183,6 +183,7 @@ router.put(
                 dueDate,
                 priority,
                 status,
+                category,
                 project,
                 assignedTo
             } = req.body;
@@ -201,6 +202,7 @@ router.put(
                     dueDate,
                     priority,
                     status,
+                    category,
                     project,
                     assignedTo: assignedTo || null
                 },

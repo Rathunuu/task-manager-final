@@ -21,12 +21,21 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
     dueDate: "",
   });
 
+  // 401 = login expired -> go back to login screen
+  const handleError = (err, fallback) => {
+    if (err && err.status === 401) {
+      onLogout();
+      return;
+    }
+    setError(err?.message || fallback);
+  };
+
   const loadUsers = () => {
     apiRequest("/tasks/admin/overview")
       .then(setUsers)
       .catch((err) => {
         setUsers([]);
-        setError(err.message || "Failed to load users");
+        handleError(err, "Failed to load users");
       });
   };
 
@@ -46,7 +55,7 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
       });
       loadUsers();
     } catch (err) {
-      setError(err.message || "Failed to update role");
+      handleError(err, "Failed to update role");
     }
   };
 
@@ -95,7 +104,7 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
       setSelectedIds([]);
       loadUsers();
     } catch (err) {
-      setError(err.message || "Failed to assign task");
+      handleError(err, "Failed to assign task");
     } finally {
       setSaving(false);
     }

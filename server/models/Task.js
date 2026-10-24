@@ -31,6 +31,12 @@ const taskSchema = new mongoose.Schema(
             default: "todo"
         },
 
+        category: {
+            type: String,
+            enum: ["Work", "Personal", "Urgent"],
+            default: "Work"
+        },
+
         project: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Project",

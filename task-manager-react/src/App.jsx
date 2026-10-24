@@ -118,6 +118,7 @@ function App() {
       dueDate: task.dueDate || null,
       priority: convertPriorityToBackend(task.priority),
       status: convertStatusToBackend(task.status),
+      category: task.category || "Work",
       project: task.projectId,
       assignedTo:
         typeof task.assignedTo === "object"
@@ -169,7 +170,7 @@ function App() {
         }
       } catch (error) {
         console.error("Failed to load backend data:", error);
-        setMessage(error.message);
+        handleApiError(error);
       } finally {
         setLoadingData(false);
       }
@@ -195,6 +196,19 @@ function App() {
     setProjects([]);
     setActiveProjectId(null);
     setPage("login");
+  }
+
+  // ---------- API ERROR HANDLING ----------
+
+  // 401 = login expired / invalid token -> clear login and go to login screen.
+  // Any other error -> just show the message.
+  function handleApiError(error) {
+    if (error && error.status === 401) {
+      handleLogout();
+      return;
+    }
+
+    setMessage(error?.message || "Something went wrong");
   }
 
   // ---------- PROJECT ----------
@@ -226,7 +240,7 @@ function App() {
       setMessage("Project created successfully.");
     } catch (error) {
       console.error("Create project error:", error);
-      setMessage(error.message);
+      handleApiError(error);
     } finally {
       setActionLoading(false);
     }
@@ -253,6 +267,7 @@ function App() {
           dueDate: null,
           priority: "medium",
           status: convertStatusToBackend(newTaskStatus),
+          category: newTaskCategory,
           project: activeProjectId,
           assignedTo: null,
         }),
@@ -270,7 +285,7 @@ function App() {
       setMessage("Task created successfully.");
     } catch (error) {
       console.error("Create task error:", error);
-      setMessage(error.message);
+      handleApiError(error);
     } finally {
       setActionLoading(false);
     }
@@ -311,7 +326,7 @@ function App() {
       );
     } catch (error) {
       console.error("AI task parser error:", error);
-      setMessage(error.message);
+      handleApiError(error);
     } finally {
       setActionLoading(false);
     }
@@ -354,7 +369,7 @@ function App() {
       setMessage("Task deleted.");
     } catch (error) {
       console.error("Delete task error:", error);
-      setMessage(error.message);
+      handleApiError(error);
     } finally {
       setActionLoading(false);
     }
@@ -400,7 +415,7 @@ function App() {
       setMessage("Task restored.");
     } catch (error) {
       console.error("Undo task error:", error);
-      setMessage(error.message);
+      handleApiError(error);
     } finally {
       setActionLoading(false);
     }
@@ -455,7 +470,7 @@ function App() {
       );
     } catch (error) {
       console.error("Status update error:", error);
-      setMessage(error.message);
+      handleApiError(error);
     }
   }
 
@@ -513,7 +528,7 @@ function App() {
       );
     } catch (error) {
       console.error("Update task error:", error);
-      setMessage(error.message);
+      handleApiError(error);
     }
   }
 
@@ -747,6 +762,9 @@ function App() {
                     convertStatusToBackend(
                       task.status
                     ),
+                  category:
+                    task.category ||
+                    "Work",
                   project: projectId,
                   assignedTo: null,
                 }),
@@ -773,13 +791,17 @@ function App() {
           error
         );
 
-        alert(
-          "Could not import JSON."
-        );
+        if (error && error.status === 401) {
+          handleApiError(error);
+        } else {
+          alert(
+            "Could not import JSON."
+          );
 
-        setMessage(
-          error.message
-        );
+          setMessage(
+            error.message
+          );
+        }
       } finally {
         setActionLoading(false);
       }

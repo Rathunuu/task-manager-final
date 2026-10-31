@@ -1,0 +1,20 @@
+name: Server tests
+
+on:
+  push:
+    branches: ["codespace-accursed-troll-694pwrpwqg4gfxrvj"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test

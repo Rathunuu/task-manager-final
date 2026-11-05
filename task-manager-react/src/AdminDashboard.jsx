@@ -10,6 +10,7 @@ const statusStyle = {
 
 function AdminDashboard({ currentAdmin, onBack, onLogout }) {
   const [users, setUsers] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [expandedId, setExpandedId] = useState(null);
@@ -19,6 +20,7 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
     title: "",
     priority: "medium",
     dueDate: "",
+    project: "",
   });
 
   // 401 = login expired -> go back to login screen
@@ -39,8 +41,22 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
       });
   };
 
+  // Every project the admin can assign into (admin is not always a member)
+  const loadProjects = () => {
+    apiRequest("/projects/admin/all")
+      .then((data) => {
+        setProjects(data);
+        setForm((f) => ({ ...f, project: f.project || data[0]?._id || "" }));
+      })
+      .catch((err) => {
+        setProjects([]);
+        handleError(err, "Failed to load projects");
+      });
+  };
+
   useEffect(() => {
     loadUsers();
+    loadProjects();
   }, []);
 
   const toggleRole = async (u) => {
@@ -82,6 +98,11 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
       return;
     }
 
+    if (!form.project) {
+      setError("Choose a project for this task");
+      return;
+    }
+
     if (selectedIds.length === 0) {
       setError("Select at least one user");
       return;
@@ -96,11 +117,12 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
           title: form.title.trim(),
           priority: form.priority,
           dueDate: form.dueDate || null,
+          project: form.project,
           assignedTo: selectedIds,
         }),
       });
       setSuccess(data.message || "Task assigned");
-      setForm({ title: "", priority: "medium", dueDate: "" });
+      setForm({ title: "", priority: "medium", dueDate: "", project: form.project });
       setSelectedIds([]);
       loadUsers();
     } catch (err) {
@@ -163,6 +185,18 @@ function AdminDashboard({ currentAdmin, onBack, onLogout }) {
               onChange={(e) => setForm({ ...form, title: e.target.value })}
               className="flex-1 min-w-[180px] h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm"
             />
+            <select
+              value={form.project}
+              onChange={(e) => setForm({ ...form, project: e.target.value })}
+              className="h-10 px-2 rounded-lg border border-slate-300 bg-white text-sm"
+            >
+              {projects.length === 0 && <option value="">No projects</option>}
+              {projects.map((p) => (
+                <option key={p._id} value={p._id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
             <select
               value={form.priority}
               onChange={(e) => setForm({ ...form, priority: e.target.value })}

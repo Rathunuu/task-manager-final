@@ -3,6 +3,7 @@ import express from "express";
 import { GoogleGenAI } from "@google/genai";
 import authMiddleware from "../middleware/authMiddleware.js";
 import Task from "../models/Task.js";
+import { loadProject, canWorkInProject } from "../utils/projectAccess.js";
 
 const router = express.Router();
 
@@ -22,6 +23,15 @@ router.post("/parse", authMiddleware, async (req, res) => {
         if (!project) {
             return res.status(400).json({
                 message: "Please provide a project ID in the 'project' field"
+            });
+        }
+
+        // Only a member of the project may add tasks to it
+        const targetProject = await loadProject(project);
+
+        if (!canWorkInProject(targetProject, req.user.userId)) {
+            return res.status(404).json({
+                message: "Project not found"
             });
         }
 

@@ -5,6 +5,11 @@ import Project from "../models/project.js";
 import authMiddleware, { adminOnly } from "../middleware/authMiddleware.js";
 import validate from "../middleware/validate.js";
 import {
+    loadProject,
+    canWorkInProject,
+    memberProjectIds
+} from "../utils/projectAccess.js";
+import {
     taskCreateSchema,
     taskUpdateSchema
 } from "../validators/taskvalidator.js";
@@ -105,14 +110,13 @@ router.post("/admin/assign", authMiddleware, adminOnly, async (req, res) => {
     }
 });
 
-// Get all tasks of logged-in user
+// Get all tasks of every project the logged-in user is a member of
 router.get("/", authMiddleware, async (req, res) => {
     try {
+        const projectIds = await memberProjectIds(req.user.userId);
+
         const tasks = await Task.find({
-            $or: [
-                { createdBy: req.user.userId },
-                { assignedTo: req.user.userId }
-            ]
+            project: { $in: projectIds }
         })
             .populate("project", "name")
             .populate("assignedTo", "name email")
@@ -127,7 +131,7 @@ router.get("/", authMiddleware, async (req, res) => {
     }
 });
 
-// Create task
+// Create task (any member of the project)
 router.post(
     "/",
     authMiddleware,
@@ -144,6 +148,15 @@ router.post(
                 project,
                 assignedTo
             } = req.body;
+
+            const targetProject = await loadProject(project);
+
+            // Not a member: act as if the project does not exist
+            if (!canWorkInProject(targetProject, req.user.userId)) {
+                return res.status(404).json({
+                    message: "Project not found"
+                });
+            }
 
             const task = await Task.create({
                 title,
@@ -170,7 +183,7 @@ router.post(
     }
 );
 
-// Update task (creator OR assigned user)
+// Update task (any member of the task's project)
 router.put(
     "/:id",
     authMiddleware,
@@ -188,14 +201,32 @@ router.put(
                 assignedTo
             } = req.body;
 
-            const task = await Task.findOneAndUpdate(
-                {
-                    _id: req.params.id,
-                    $or: [
-                        { createdBy: req.user.userId },
-                        { assignedTo: req.user.userId }
-                    ]
-                },
+            const existing = await Task.findById(req.params.id);
+
+            const currentProject = existing
+                ? await loadProject(existing.project)
+                : null;
+
+            // Must be a member of the project the task is in now
+            if (!canWorkInProject(currentProject, req.user.userId)) {
+                return res.status(404).json({
+                    message: "Task not found"
+                });
+            }
+
+            // If the task is being moved, must be a member of the new one too
+            if (project && String(project) !== String(existing.project)) {
+                const newProject = await loadProject(project);
+
+                if (!canWorkInProject(newProject, req.user.userId)) {
+                    return res.status(404).json({
+                        message: "Project not found"
+                    });
+                }
+            }
+
+            const task = await Task.findByIdAndUpdate(
+                req.params.id,
                 {
                     title,
                     description,
@@ -212,12 +243,6 @@ router.put(
                 }
             );
 
-            if (!task) {
-                return res.status(404).json({
-                    message: "Task not found"
-                });
-            }
-
             res.json({
                 message: "Task updated successfully",
                 task
@@ -231,19 +256,30 @@ router.put(
     }
 );
 
-// Delete task
+// Delete task (the task's creator, or an owner of its project)
 router.delete("/:id", authMiddleware, async (req, res) => {
     try {
-        const task = await Task.findOneAndDelete({
-            _id: req.params.id,
-            createdBy: req.user.userId
-        });
+        const task = await Task.findById(req.params.id);
 
-        if (!task) {
+        const project = task ? await loadProject(task.project) : null;
+
+        if (!canWorkInProject(project, req.user.userId)) {
             return res.status(404).json({
                 message: "Task not found"
             });
         }
+
+        const isCreator =
+            String(task.createdBy) === String(req.user.userId);
+
+        if (!isCreator && !project.isOwner(req.user.userId)) {
+            return res.status(403).json({
+                message:
+                    "Only the task's creator or a project owner can delete it"
+            });
+        }
+
+        await task.deleteOne();
 
         res.json({
             message: "Task deleted successfully"

@@ -11,8 +11,13 @@
 //              changes anything it saves a backup copy of the projects
 //              collection as "projects_backup_premigration".
 //
-// The script is safe to run twice: projects that already have members are
-// skipped.
+// The old "owner" field is deliberately KEPT. The schema no longer reads it,
+// but while the old version of the app is still deployed it keeps working,
+// and it gives us an easy way back if something goes wrong.
+//
+// The script is safe to run more than once: projects that already have
+// members are skipped, so it can be re-run right before deploying to pick up
+// any projects created in the meantime.
 
 import "dotenv/config";
 import mongoose from "mongoose";
@@ -50,8 +55,7 @@ async function migrate(projects) {
                             addedAt: doc.createdAt || new Date()
                         }
                     ]
-                },
-                $unset: { owner: "" }
+                }
             }
         );
 
@@ -74,8 +78,7 @@ async function verify(sourceDocs, projects) {
         const ok =
             first &&
             String(first.user) === String(original.owner) &&
-            first.role === "owner" &&
-            now.owner === undefined;
+            first.role === "owner";
 
         if (!ok) {
             bad++;

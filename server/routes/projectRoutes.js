@@ -2,7 +2,7 @@ import express from "express";
 import { z } from "zod";
 import Project from "../models/project.js";
 import User from "../models/user.js";
-import authMiddleware from "../middleware/authMiddleware.js";
+import authMiddleware, { adminOnly } from "../middleware/authMiddleware.js";
 import validate from "../middleware/validate.js";
 import {
     projectCreateSchema,
@@ -66,6 +66,22 @@ router.get("/", authMiddleware, async (req, res) => {
         const projects = await Project.find({
             "members.user": req.user.userId
         }).sort({ createdAt: -1 });
+
+        res.json(projects);
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to fetch projects",
+            error: error.message
+        });
+    }
+});
+
+// ADMIN: every project in the system (id + name only).
+// The Admin Dashboard needs this to pick the target project for a task,
+// because an admin is not necessarily a member of every project.
+router.get("/admin/all", authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const projects = await Project.find({}, "name").sort({ name: 1 });
 
         res.json(projects);
     } catch (error) {

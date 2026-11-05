@@ -133,7 +133,7 @@ describe("Tasks: category", () => {
 
         const project = await Project.create({
             name: "Test Project",
-            owner: user.id
+            members: [{ user: user.id, role: "owner" }]
         });
 
         const res = await request(app)
@@ -160,7 +160,7 @@ describe("Tasks: category", () => {
 
         const project = await Project.create({
             name: "Default Project",
-            owner: user.id
+            members: [{ user: user.id, role: "owner" }]
         });
 
         const res = await request(app)

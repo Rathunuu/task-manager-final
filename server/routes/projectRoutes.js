@@ -192,3 +192,107 @@ router.get("/:id/members", authMiddleware, async (req, res) => {
         });
     }
 });
+
+// Add a member by email or user id (owners or a global admin)
+router.post(
+    "/:id/members",
+    authMiddleware,
+    validate(addMemberSchema),
+    async (req, res) => {
+        try {
+            const project = await loadProject(req.params.id);
+
+            if (!(await ensureCanManage(project, req.user.userId, res, "add members"))) {
+                return;
+            }
+
+            const { email, userId } = req.body;
+
+            const userToAdd = email
+                ? await User.findOne({ email: email.toLowerCase().trim() })
+                : await User.findById(userId).catch(() => null);
+
+            if (!userToAdd) {
+                return res.status(404).json({
+                    message: "No user found with that email or id"
+                });
+            }
+
+            if (project.isMember(userToAdd._id)) {
+                return res.status(409).json({
+                    message: "That user is already a member of this project"
+                });
+            }
+
+            project.members.push({ user: userToAdd._id, role: "member" });
+            await project.save();
+
+            await project.populate("members.user", "name email");
+
+            res.status(201).json({
+                message: "Member added successfully",
+                members: formatMembers(project)
+            });
+        } catch (error) {
+            res.status(500).json({
+                message: "Failed to add member",
+                error: error.message
+            });
+        }
+    }
+);
+
+// Remove a member (owners or a global admin)
+router.delete(
+    "/:id/members/:userId",
+    authMiddleware,
+    async (req, res) => {
+        try {
+            const project = await loadProject(req.params.id);
+
+            if (!(await ensureCanManage(project, req.user.userId, res, "remove members"))) {
+                return;
+            }
+
+            const target = project.members.find(
+                (m) => String(m.user) === String(req.params.userId)
+            );
+
+            if (!target) {
+                return res.status(404).json({
+                    message: "That user is not a member of this project"
+                });
+            }
+
+            // A project must always keep at least one owner
+            const ownerCount = project.members.filter(
+                (m) => m.role === "owner"
+            ).length;
+
+            if (target.role === "owner" && ownerCount === 1) {
+                return res.status(400).json({
+                    message: "Cannot remove the only owner of a project"
+                });
+            }
+
+            project.members = project.members.filter(
+                (m) => String(m.user) !== String(req.params.userId)
+            );
+            await project.save();
+
+            await project.populate("members.user", "name email");
+
+            res.json({
+                message: "Member removed successfully",
+                members: formatMembers(project)
+            });
+        } catch (error) {
+            res.status(500).json({
+                message: "Failed to remove member",
+                error: error.message
+            });
+        }
+    }
+);
+
+export default router;

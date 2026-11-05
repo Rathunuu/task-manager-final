@@ -3,7 +3,9 @@ name: Migration rehearsal
 on:
   push:
     branches: ["week-10-shared-projects"]
-    paths: [".github/workflows/migration-rehearsal.yml"]
+    paths:
+      - ".github/workflows/migration-rehearsal.yml"
+      - "server/scripts/migrate-project-owners.js"
 
 jobs:
   rehearsal:

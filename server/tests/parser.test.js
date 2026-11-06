@@ -46,7 +46,7 @@ beforeAll(async () => {
 
     const project = await Project.create({
         name: "Parser Project",
-        owner: login.body.user.id
+        members: [{ user: login.body.user.id, role: "owner" }]
     });
 
     projectId = String(project._id);
@@ -109,5 +109,27 @@ describe("POST /api/tasks/parse (mocked LLM)", () => {
 
         expect(res.status).toBe(422);
         expect(res.body.message).toMatch(/missing required field/i);
+    });
+
+    test("a user who is not a member of the project is blocked before the AI is called", async () => {
+        await request(app)
+            .post("/api/auth/signup")
+            .send({
+                name: "Outsider",
+                email: "outsider-parser@example.com",
+                password: "secret123"
+            });
+
+        const login = await request(app)
+            .post("/api/auth/login")
+            .send({ email: "outsider-parser@example.com", password: "secret123" });
+
+        const res = await request(app)
+            .post("/api/tasks/parse")
+            .set("Authorization", `Bearer ${login.body.token}`)
+            .send({ text: "call the vendor tomorrow", project: projectId });
+
+        expect(res.status).toBe(404);
+        expect(mockGenerateContent).not.toHaveBeenCalled();
     });
 });

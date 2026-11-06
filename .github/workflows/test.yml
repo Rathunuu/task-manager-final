@@ -2,7 +2,11 @@ name: Server tests
 
 on:
   push:
-    branches: ["codespace-accursed-troll-694pwrpwqg4gfxrvj"]
+    branches:
+      - "week-10-shared-projects"
+      - "codespace-accursed-troll-694pwrpwqg4gfxrvj"
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:

@@ -7,6 +7,7 @@ import TaskDetailDialog from "./TaskDetailDialog";
 import LoginPage from "./LoginPage";
 import SignupPage from "./SignupPage";
 import AdminDashboard from "./AdminDashboard";
+import MembersPanel from "./MembersPanel";
 import { apiRequest } from "./api";
 import { getCurrentUser, getCurrentUserRole, logoutUser } from "./auth";
 
@@ -83,7 +84,21 @@ function App() {
       id: project._id || project.id,
       name: project.name,
       description: project.description || "",
+      members: project.members || [],
     };
+  }
+
+  // Members panel is only for a project's owners (the server enforces it too)
+  function isProjectOwner(project) {
+    return Boolean(
+      project &&
+        authUser &&
+        project.members.some(
+          (m) =>
+            String(m.user) === String(authUser.id || authUser._id) &&
+            m.role === "owner"
+        )
+    );
   }
 
   function normalizeTask(task) {
@@ -1027,6 +1042,14 @@ function App() {
             {projectTasks.length}{" "}
             tasks done
           </p>
+        )}
+
+        {isProjectOwner(activeProject) && (
+          <MembersPanel
+            project={activeProject}
+            currentUserId={authUser.id || authUser._id}
+            onUnauthorized={handleApiError}
+          />
         )}
 
         <div className="flex flex-wrap gap-2 mb-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">

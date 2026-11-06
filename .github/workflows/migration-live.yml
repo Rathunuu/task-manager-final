@@ -1,0 +1,25 @@
+name: Migration live
+
+# Safe to run again: projects that already have members are skipped.
+# Re-run just before deploying, to catch projects created in the meantime.
+
+on:
+  push:
+    branches: ["week-10-shared-projects"]
+    paths: [".github/workflows/migration-live.yml"]
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node scripts/migrate-project-owners.js --live
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}

@@ -1,438 +1,314 @@
-import mongoose from "mongoose";
-import request from "supertest";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import express from "express";
+import { z } from "zod";
+import Project from "../models/project.js";
+import User from "../models/user.js";
+import authMiddleware, { adminOnly } from "../middleware/authMiddleware.js";
+import validate from "../middleware/validate.js";
+import {
+    projectCreateSchema,
+    projectUpdateSchema
+} from "../validators/projectValidator.js";
+import {
+    loadProject,
+    canWorkInProject,
+    canManageMembers
+} from "../utils/projectAccess.js";
 
-process.env.JWT_SECRET = "test-secret";
-process.env.GOOGLE_CLIENT_ID = "test-google-client-id";
-process.env.GEMINI_API_KEY = "test-key";
+const router = express.Router();
 
-const { default: app } = await import("../app.js");
-const { default: User } = await import("../models/user.js");
-const { default: Project } = await import("../models/project.js");
-const { default: Task } = await import("../models/Task.js");
+// Add a member by email OR by user id
+const addMemberSchema = z
+    .object({
+        email: z.string().email("Enter a valid email").optional(),
+        userId: z.string().optional()
+    })
+    .refine((data) => data.email || data.userId, {
+        message: "Provide an email or a userId"
+    });
 
-let mongod;
-
-beforeAll(async () => {
-    mongod = await MongoMemoryServer.create();
-    await mongoose.connect(mongod.getUri());
-});
-
-afterAll(async () => {
-    await mongoose.disconnect();
-    await mongod.stop();
-});
-
-async function signupAndLogin(name, email, password = "secret123") {
-    await request(app)
-        .post("/api/auth/signup")
-        .send({ name, email, password });
-
-    const res = await request(app)
-        .post("/api/auth/login")
-        .send({ email, password });
-
-    return { token: res.body.token, user: res.body.user, email };
+// Shape used when listing members
+function formatMembers(project) {
+    return project.members.map((m) => ({
+        user: m.user,
+        role: m.role,
+        addedAt: m.addedAt
+    }));
 }
 
-function auth(token) {
-    return { Authorization: `Bearer ${token}` };
+// Shared check for the three members endpoints.
+// Sends the error response itself and returns false when access is denied:
+//   - not a member at all -> 404 (do not reveal the project exists)
+//   - member but not owner -> 403
+async function ensureCanManage(project, userId, res, action) {
+    if (!project) {
+        res.status(404).json({ message: "Project not found" });
+        return false;
+    }
+
+    if (await canManageMembers(project, userId)) {
+        return true;
+    }
+
+    if (project.isMember(userId)) {
+        res.status(403).json({
+            message: `Only a project owner can ${action}`
+        });
+    } else {
+        res.status(404).json({ message: "Project not found" });
+    }
+
+    return false;
 }
 
-async function createProject(token, name = "Team Project") {
-    const res = await request(app)
-        .post("/api/projects")
-        .set(auth(token))
-        .send({ name });
+// Get every project the logged-in user is a MEMBER of
+router.get("/", authMiddleware, async (req, res) => {
+    try {
+        const projects = await Project.find({
+            "members.user": req.user.userId
+        }).sort({ createdAt: -1 });
 
-    return res.body.project;
-}
-
-async function createTask(token, projectId, title = "Shared task") {
-    const res = await request(app)
-        .post("/api/tasks")
-        .set(auth(token))
-        .send({ title, project: projectId });
-
-    return res.body.task;
-}
-
-function taskBody(task, changes = {}) {
-    return {
-        title: task.title,
-        project: String(task.project),
-        status: task.status,
-        ...changes
-    };
-}
-
-describe("Project creation", () => {
-    test("the creator becomes the project's first owner", async () => {
-        const owner = await signupAndLogin("Creator", "creator@example.com");
-
-        const project = await createProject(owner.token);
-
-        expect(project.members).toHaveLength(1);
-        expect(String(project.members[0].user)).toBe(owner.user.id);
-        expect(project.members[0].role).toBe("owner");
-    });
-
-    test("a project can never be saved without an owner", async () => {
-        await expect(
-            Project.create({ name: "No owner", members: [] })
-        ).rejects.toThrow(/at least one owner/i);
-    });
+        res.json(projects);
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to fetch projects",
+            error: error.message
+        });
+    }
 });
 
-describe("A non-member is blocked", () => {
-    test("cannot see, create, update or delete tasks in someone else's project", async () => {
-        const owner = await signupAndLogin("Owner A", "ownera@example.com");
-        const outsider = await signupAndLogin("Outsider A", "outsidera@example.com");
+// ADMIN: every project in the system (id + name only).
+// The Admin Dashboard needs this to pick the target project for a task,
+// because an admin is not necessarily a member of every project.
+router.get("/admin/all", authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const projects = await Project.find({}, "name").sort({ name: 1 });
 
-        const project = await createProject(owner.token);
-        const task = await createTask(owner.token, project._id);
-
-        // does not appear in their list of tasks or projects
-        const tasks = await request(app).get("/api/tasks").set(auth(outsider.token));
-        expect(tasks.body.map((t) => t._id)).not.toContain(task._id);
-
-        const projects = await request(app).get("/api/projects").set(auth(outsider.token));
-        expect(projects.body.map((p) => p._id)).not.toContain(project._id);
-
-        // cannot create a task in it
-        const create = await request(app)
-            .post("/api/tasks")
-            .set(auth(outsider.token))
-            .send({ title: "Sneaky", project: project._id });
-        expect(create.status).toBe(404);
-
-        // cannot update it
-        const update = await request(app)
-            .put(`/api/tasks/${task._id}`)
-            .set(auth(outsider.token))
-            .send(taskBody(task, { title: "Hacked" }));
-        expect(update.status).toBe(404);
-
-        // cannot delete it
-        const del = await request(app)
-            .delete(`/api/tasks/${task._id}`)
-            .set(auth(outsider.token));
-        expect(del.status).toBe(404);
-
-        const stillThere = await Task.findById(task._id);
-        expect(stillThere.title).toBe("Shared task");
-    });
-
-    test("cannot list or change the members of a project", async () => {
-        const owner = await signupAndLogin("Owner B", "ownerb@example.com");
-        const outsider = await signupAndLogin("Outsider B", "outsiderb@example.com");
-
-        const project = await createProject(owner.token);
-
-        const list = await request(app)
-            .get(`/api/projects/${project._id}/members`)
-            .set(auth(outsider.token));
-        expect(list.status).toBe(404);
-
-        const add = await request(app)
-            .post(`/api/projects/${project._id}/members`)
-            .set(auth(outsider.token))
-            .send({ email: outsider.email });
-        expect(add.status).toBe(404);
-    });
+        res.json(projects);
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to fetch projects",
+            error: error.message
+        });
+    }
 });
 
-describe("A member (not just an owner) can work with the project", () => {
-    test("sees the shared project and its tasks, and can update a task", async () => {
-        const owner = await signupAndLogin("Owner C", "ownerc@example.com");
-        const member = await signupAndLogin("Member C", "memberc@example.com");
+// Create project: the creator becomes its first owner
+router.post(
+    "/",
+    authMiddleware,
+    validate(projectCreateSchema),
+    async (req, res) => {
+        try {
+            const { name, description } = req.body;
 
-        const project = await createProject(owner.token);
-        const task = await createTask(owner.token, project._id);
-
-        const add = await request(app)
-            .post(`/api/projects/${project._id}/members`)
-            .set(auth(owner.token))
-            .send({ email: member.email });
-        expect(add.status).toBe(201);
-
-        // the project now shows up for the member, even though they did not create it
-        const projects = await request(app).get("/api/projects").set(auth(member.token));
-        expect(projects.body.map((p) => p._id)).toContain(project._id);
-
-        // and so does its task
-        const tasks = await request(app).get("/api/tasks").set(auth(member.token));
-        expect(tasks.body.map((t) => t._id)).toContain(task._id);
-
-        // the member can update it
-        const update = await request(app)
-            .put(`/api/tasks/${task._id}`)
-            .set(auth(member.token))
-            .send(taskBody(task, { status: "in-progress" }));
-        expect(update.status).toBe(200);
-        expect(update.body.task.status).toBe("in-progress");
-
-        // the member can create a task in it too
-        const created = await request(app)
-            .post("/api/tasks")
-            .set(auth(member.token))
-            .send({ title: "Added by member", project: project._id });
-        expect(created.status).toBe(201);
-    });
-
-    test("but a member cannot edit or delete the project, or manage members", async () => {
-        const owner = await signupAndLogin("Owner D", "ownerd@example.com");
-        const member = await signupAndLogin("Member D", "memberd@example.com");
-        const other = await signupAndLogin("Other D", "otherd@example.com");
-
-        const project = await createProject(owner.token);
-
-        await request(app)
-            .post(`/api/projects/${project._id}/members`)
-            .set(auth(owner.token))
-            .send({ email: member.email });
-
-        const edit = await request(app)
-            .put(`/api/projects/${project._id}`)
-            .set(auth(member.token))
-            .send({ name: "Renamed by member" });
-        expect(edit.status).toBe(403);
-
-        const del = await request(app)
-            .delete(`/api/projects/${project._id}`)
-            .set(auth(member.token));
-        expect(del.status).toBe(403);
-
-        const add = await request(app)
-            .post(`/api/projects/${project._id}/members`)
-            .set(auth(member.token))
-            .send({ email: other.email });
-        expect(add.status).toBe(403);
-
-        const remove = await request(app)
-            .delete(`/api/projects/${project._id}/members/${owner.user.id}`)
-            .set(auth(member.token));
-        expect(remove.status).toBe(403);
-
-        const unchanged = await Project.findById(project._id);
-        expect(unchanged.name).toBe("Team Project");
-        expect(unchanged.members).toHaveLength(2);
-    });
-});
-
-describe("Only an owner can add or remove members", () => {
-    test("owner adds a member, lists members, then removes them", async () => {
-        const owner = await signupAndLogin("Owner E", "ownere@example.com");
-        const member = await signupAndLogin("Member E", "membere@example.com");
-
-        const project = await createProject(owner.token);
-        const task = await createTask(owner.token, project._id);
-
-        const add = await request(app)
-            .post(`/api/projects/${project._id}/members`)
-            .set(auth(owner.token))
-            .send({ email: member.email });
-        expect(add.status).toBe(201);
-
-        const list = await request(app)
-            .get(`/api/projects/${project._id}/members`)
-            .set(auth(owner.token));
-        expect(list.status).toBe(200);
-        expect(list.body).toHaveLength(2);
-
-        const roles = Object.fromEntries(
-            list.body.map((m) => [m.user.email, m.role])
-        );
-        expect(roles["ownere@example.com"]).toBe("owner");
-        expect(roles["membere@example.com"]).toBe("member");
-
-        const remove = await request(app)
-            .delete(`/api/projects/${project._id}/members/${member.user.id}`)
-            .set(auth(owner.token));
-        expect(remove.status).toBe(200);
-
-        // the project and its tasks disappear for the removed member
-        const projects = await request(app).get("/api/projects").set(auth(member.token));
-        expect(projects.body.map((p) => p._id)).not.toContain(project._id);
-
-        const tasks = await request(app).get("/api/tasks").set(auth(member.token));
-        expect(tasks.body.map((t) => t._id)).not.toContain(task._id);
-    });
-
-    test("adding someone twice, or someone who does not exist, is rejected", async () => {
-        const owner = await signupAndLogin("Owner F", "ownerf@example.com");
-        const member = await signupAndLogin("Member F", "memberf@example.com");
-
-        const project = await createProject(owner.token);
-
-        await request(app)
-            .post(`/api/projects/${project._id}/members`)
-            .set(auth(owner.token))
-            .send({ email: member.email });
-
-        const twice = await request(app)
-            .post(`/api/projects/${project._id}/members`)
-            .set(auth(owner.token))
-            .send({ email: member.email });
-        expect(twice.status).toBe(409);
-
-        const missing = await request(app)
-            .post(`/api/projects/${project._id}/members`)
-            .set(auth(owner.token))
-            .send({ email: "nobody@example.com" });
-        expect(missing.status).toBe(404);
-    });
-
-    test("the only owner cannot be removed", async () => {
-        const owner = await signupAndLogin("Owner G", "ownerg@example.com");
-
-        const project = await createProject(owner.token);
-
-        const remove = await request(app)
-            .delete(`/api/projects/${project._id}/members/${owner.user.id}`)
-            .set(auth(owner.token));
-        expect(remove.status).toBe(400);
-
-        const unchanged = await Project.findById(project._id);
-        expect(unchanged.members).toHaveLength(1);
-    });
-
-    test("a global admin can manage members of a project they are not in", async () => {
-        const owner = await signupAndLogin("Owner H", "ownerh@example.com");
-        const member = await signupAndLogin("Member H", "memberh@example.com");
-        const admin = await signupAndLogin("Admin H", "adminh@example.com");
-
-        await User.updateOne({ _id: admin.user.id }, { role: "admin" });
-
-        const project = await createProject(owner.token);
-
-        const add = await request(app)
-            .post(`/api/projects/${project._id}/members`)
-            .set(auth(admin.token))
-            .send({ email: member.email });
-        expect(add.status).toBe(201);
-    });
-});
-
-describe("POST /api/tasks/admin/assign uses a real shared project", () => {
-    test("adds the assignees to the chosen project instead of creating duplicates", async () => {
-        const owner = await signupAndLogin("Owner I", "owneri@example.com");
-        const userOne = await signupAndLogin("User One", "one@example.com");
-        const userTwo = await signupAndLogin("User Two", "two@example.com");
-        const admin = await signupAndLogin("Admin I", "admini@example.com");
-
-        await User.updateOne({ _id: admin.user.id }, { role: "admin" });
-
-        const project = await createProject(owner.token, "Real Shared Project");
-        const projectsBefore = await Project.countDocuments();
-
-        const res = await request(app)
-            .post("/api/tasks/admin/assign")
-            .set(auth(admin.token))
-            .send({
-                title: "Prepare the report",
-                project: project._id,
-                assignedTo: [userOne.user.id, userTwo.user.id]
+            const project = await Project.create({
+                name,
+                description,
+                members: [{ user: req.user.userId, role: "owner" }]
             });
 
-        expect(res.status).toBe(201);
-        expect(res.body.tasks).toHaveLength(2);
-        expect(res.body.membersAdded).toBe(2);
-
-        // no new project was created, and no "Assigned by Admin" project exists
-        expect(await Project.countDocuments()).toBe(projectsBefore);
-        expect(await Project.countDocuments({ name: "Assigned by Admin" })).toBe(0);
-
-        // both tasks live in the real project
-        for (const task of res.body.tasks) {
-            expect(String(task.project)).toBe(project._id);
+            res.status(201).json({
+                message: "Project created successfully",
+                project
+            });
+        } catch (error) {
+            res.status(500).json({
+                message: "Failed to create project",
+                error: error.message
+            });
         }
+    }
+);
 
-        // both users are now members of that one project
-        const saved = await Project.findById(project._id);
-        expect(saved.isMember(userOne.user.id)).toBe(true);
-        expect(saved.isMember(userTwo.user.id)).toBe(true);
+// Update project (owners only)
+router.put(
+    "/:id",
+    authMiddleware,
+    validate(projectUpdateSchema),
+    async (req, res) => {
+        try {
+            const project = await loadProject(req.params.id);
 
-        // and the project shows up in each of their lists
-        for (const user of [userOne, userTwo]) {
-            const projects = await request(app).get("/api/projects").set(auth(user.token));
-            expect(projects.body.map((p) => p._id)).toContain(project._id);
-        }
-    });
-
-    test("assigning again does not add duplicate members", async () => {
-        const owner = await signupAndLogin("Owner J", "ownerj@example.com");
-        const user = await signupAndLogin("User J", "userj@example.com");
-        const admin = await signupAndLogin("Admin J", "adminj@example.com");
-
-        await User.updateOne({ _id: admin.user.id }, { role: "admin" });
-
-        const project = await createProject(owner.token);
-
-        for (let i = 0; i < 2; i++) {
-            const res = await request(app)
-                .post("/api/tasks/admin/assign")
-                .set(auth(admin.token))
-                .send({
-                    title: `Task ${i}`,
-                    project: project._id,
-                    assignedTo: [user.user.id]
+            // Not a member: act as if the project does not exist
+            if (!canWorkInProject(project, req.user.userId)) {
+                return res.status(404).json({
+                    message: "Project not found"
                 });
-            expect(res.status).toBe(201);
+            }
+
+            if (!project.isOwner(req.user.userId)) {
+                return res.status(403).json({
+                    message: "Only a project owner can edit the project"
+                });
+            }
+
+            project.name = req.body.name;
+            project.description = req.body.description;
+            await project.save();
+
+            res.json({
+                message: "Project updated successfully",
+                project
+            });
+        } catch (error) {
+            res.status(500).json({
+                message: "Failed to update project",
+                error: error.message
+            });
+        }
+    }
+);
+
+// Delete project (owners only)
+router.delete("/:id", authMiddleware, async (req, res) => {
+    try {
+        const project = await loadProject(req.params.id);
+
+        if (!canWorkInProject(project, req.user.userId)) {
+            return res.status(404).json({
+                message: "Project not found"
+            });
         }
 
-        const saved = await Project.findById(project._id);
-        expect(saved.members).toHaveLength(2);
-    });
-
-    test("requires a target project and an admin", async () => {
-        const normal = await signupAndLogin("Normal K", "normalk@example.com");
-        const admin = await signupAndLogin("Admin K", "admink@example.com");
-        const user = await signupAndLogin("User K", "userk@example.com");
-
-        await User.updateOne({ _id: admin.user.id }, { role: "admin" });
-
-        const noProject = await request(app)
-            .post("/api/tasks/admin/assign")
-            .set(auth(admin.token))
-            .send({ title: "No project", assignedTo: [user.user.id] });
-        expect(noProject.status).toBe(400);
-
-        const project = await createProject(user.token);
-
-        const notAdmin = await request(app)
-            .post("/api/tasks/admin/assign")
-            .set(auth(normal.token))
-            .send({
-                title: "Not allowed",
-                project: project._id,
-                assignedTo: [user.user.id]
+        if (!project.isOwner(req.user.userId)) {
+            return res.status(403).json({
+                message: "Only a project owner can delete the project"
             });
-        expect(notAdmin.status).toBe(403);
-    });
+        }
+
+        await project.deleteOne();
+
+        res.json({
+            message: "Project deleted successfully"
+        });
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to delete project",
+            error: error.message
+        });
+    }
 });
 
+// List members with roles (owners or a global admin)
+router.get("/:id/members", authMiddleware, async (req, res) => {
+    try {
+        const project = await loadProject(req.params.id);
 
-describe("GET /api/projects/admin/all", () => {
-    test("only a global admin can list every project", async () => {
-        const owner = await signupAndLogin("Owner K", "ownerk@example.com");
-        const admin = await signupAndLogin("Admin K", "admink@example.com");
+        if (!(await ensureCanManage(project, req.user.userId, res, "view the member list"))) {
+            return;
+        }
 
-        await User.updateOne({ _id: admin.user.id }, { role: "admin" });
+        await project.populate("members.user", "name email");
 
-        const project = await createProject(owner.token, "Not Admin's Project");
-
-        // a normal user is refused
-        const denied = await request(app)
-            .get("/api/projects/admin/all")
-            .set(auth(owner.token));
-        expect(denied.status).toBe(403);
-
-        // the admin sees it even though they are not a member
-        const ok = await request(app)
-            .get("/api/projects/admin/all")
-            .set(auth(admin.token));
-        expect(ok.status).toBe(200);
-        expect(ok.body.map((p) => p._id)).toContain(project._id);
-    });
+        res.json(formatMembers(project));
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to fetch members",
+            error: error.message
+        });
+    }
 });
+
+// Add a member by email or user id (owners or a global admin)
+router.post(
+    "/:id/members",
+    authMiddleware,
+    validate(addMemberSchema),
+    async (req, res) => {
+        try {
+            const project = await loadProject(req.params.id);
+
+            if (!(await ensureCanManage(project, req.user.userId, res, "add members"))) {
+                return;
+            }
+
+            const { email, userId } = req.body;
+
+            const userToAdd = email
+                ? await User.findOne({ email: email.toLowerCase().trim() })
+                : await User.findById(userId).catch(() => null);
+
+            if (!userToAdd) {
+                return res.status(404).json({
+                    message: "No user found with that email or id"
+                });
+            }
+
+            if (project.isMember(userToAdd._id)) {
+                return res.status(409).json({
+                    message: "That user is already a member of this project"
+                });
+            }
+
+            project.members.push({ user: userToAdd._id, role: "member" });
+            await project.save();
+
+            await project.populate("members.user", "name email");
+
+            res.status(201).json({
+                message: "Member added successfully",
+                members: formatMembers(project)
+            });
+        } catch (error) {
+            res.status(500).json({
+                message: "Failed to add member",
+                error: error.message
+            });
+        }
+    }
+);
+
+// Remove a member (owners or a global admin)
+router.delete(
+    "/:id/members/:userId",
+    authMiddleware,
+    async (req, res) => {
+        try {
+            const project = await loadProject(req.params.id);
+
+            if (!(await ensureCanManage(project, req.user.userId, res, "remove members"))) {
+                return;
+            }
+
+            const target = project.members.find(
+                (m) => String(m.user) === String(req.params.userId)
+            );
+
+            if (!target) {
+                return res.status(404).json({
+                    message: "That user is not a member of this project"
+                });
+            }
+
+            // A project must always keep at least one owner
+            const ownerCount = project.members.filter(
+                (m) => m.role === "owner"
+            ).length;
+
+            if (target.role === "owner" && ownerCount === 1) {
+                return res.status(400).json({
+                    message: "Cannot remove the only owner of a project"
+                });
+            }
+
+            project.members = project.members.filter(
+                (m) => String(m.user) !== String(req.params.userId)
+            );
+            await project.save();
+
+            await project.populate("members.user", "name email");
+
+            res.json({
+                message: "Member removed successfully",
+                members: formatMembers(project)
+            });
+        } catch (error) {
+            res.status(500).json({
+                message: "Failed to remove member",
+                error: error.message
+            });
+        }
+    }
+);
+
+export default router;

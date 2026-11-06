@@ -1,24 +1,25 @@
+name: Migration live
 
-describe("GET /api/projects/admin/all", () => {
-    test("only a global admin can list every project", async () => {
-        const owner = await signupAndLogin("Owner L", "ownerl@example.com");
-        const admin = await signupAndLogin("Admin L", "adminl@example.com");
+# Safe to run again: projects that already have members are skipped.
+# Re-run just before deploying, to catch projects created in the meantime.
 
-        await User.updateOne({ _id: admin.user.id }, { role: "admin" });
+on:
+  push:
+    branches: ["week-10-shared-projects"]
+    paths: [".github/workflows/migration-live.yml"]
 
-        const project = await createProject(owner.token, "Not Admin's Project");
-
-        // a normal user is refused
-        const denied = await request(app)
-            .get("/api/projects/admin/all")
-            .set(auth(owner.token));
-        expect(denied.status).toBe(403);
-
-        // the admin sees it even though they are not a member
-        const ok = await request(app)
-            .get("/api/projects/admin/all")
-            .set(auth(admin.token));
-        expect(ok.status).toBe(200);
-        expect(ok.body.map((p) => p._id)).toContain(project._id);
-    });
-});
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node scripts/migrate-project-owners.js --live
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}

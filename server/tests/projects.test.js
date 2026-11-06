@@ -411,3 +411,27 @@ describe("POST /api/tasks/admin/assign uses a real shared project", () => {
         expect(notAdmin.status).toBe(403);
     });
 });
+
+describe("GET /api/projects/admin/all", () => {
+    test("only a global admin can list every project", async () => {
+        const owner = await signupAndLogin("Owner L", "ownerl@example.com");
+        const admin = await signupAndLogin("Admin L", "adminl@example.com");
+
+        await User.updateOne({ _id: admin.user.id }, { role: "admin" });
+
+        const project = await createProject(owner.token, "Not Admin's Project");
+
+        // a normal user is refused
+        const denied = await request(app)
+            .get("/api/projects/admin/all")
+            .set(auth(owner.token));
+        expect(denied.status).toBe(403);
+
+        // the admin sees it even though they are not a member
+        const ok = await request(app)
+            .get("/api/projects/admin/all")
+            .set(auth(admin.token));
+        expect(ok.status).toBe(200);
+        expect(ok.body.map((p) => p._id)).toContain(project._id);
+    });
+});

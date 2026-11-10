@@ -11,7 +11,8 @@ import {
 import {
     loadProject,
     canWorkInProject,
-    canManageMembers
+    canManageMembers,
+    isGlobalAdmin
 } from "../utils/projectAccess.js";
 
 const router = express.Router();
@@ -60,12 +61,18 @@ async function ensureCanManage(project, userId, res, action) {
     return false;
 }
 
-// Get every project the logged-in user is a MEMBER of
+// Get every project the logged-in user is a MEMBER of.
+// Archived projects are left out (the project switcher uses this list)
+// unless ?includeArchived=true is passed.
 router.get("/", authMiddleware, async (req, res) => {
     try {
-        const projects = await Project.find({
-            "members.user": req.user.userId
-        }).sort({ createdAt: -1 });
+        const filter = { "members.user": req.user.userId };
+
+        if (req.query.includeArchived !== "true") {
+            filter.archived = { $ne: true };
+        }
+
+        const projects = await Project.find(filter).sort({ createdAt: -1 });
 
         res.json(projects);
     } catch (error) {
@@ -76,17 +83,44 @@ router.get("/", authMiddleware, async (req, res) => {
     }
 });
 
-// ADMIN: every project in the system (id + name only).
-// The Admin Dashboard needs this to pick the target project for a task,
-// because an admin is not necessarily a member of every project.
+// ADMIN: every project in the system (id, name, archived flag).
+// The Admin Dashboard needs this to pick the target project for a task
+// and to archive / unarchive projects, because an admin is not
+// necessarily a member of every project. Archived ones are included.
 router.get("/admin/all", authMiddleware, adminOnly, async (req, res) => {
     try {
-        const projects = await Project.find({}, "name").sort({ name: 1 });
+        const projects = await Project.find({}, "name archived").sort({ name: 1 });
 
         res.json(projects);
     } catch (error) {
         res.status(500).json({
             message: "Failed to fetch projects",
+            error: error.message
+        });
+    }
+});
+
+// Open ONE project directly. Works for archived projects too, so old
+// links and history stay reachable. Members and global admins only.
+router.get("/:id", authMiddleware, async (req, res) => {
+    try {
+        const project = await loadProject(req.params.id);
+
+        const allowed =
+            project &&
+            (project.isMember(req.user.userId) ||
+                (await isGlobalAdmin(req.user.userId)));
+
+        if (!allowed) {
+            return res.status(404).json({
+                message: "Project not found"
+            });
+        }
+
+        res.json(project);
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to fetch project",
             error: error.message
         });
     }
@@ -184,6 +218,39 @@ router.delete("/:id", authMiddleware, async (req, res) => {
     } catch (error) {
         res.status(500).json({
             message: "Failed to delete project",
+            error: error.message
+        });
+    }
+});
+
+// Archive / unarchive a project (owners or a global admin).
+// Archiving only flips a flag: tasks, members and history stay as they are.
+router.patch("/:id/archive", authMiddleware, async (req, res) => {
+    try {
+        const project = await loadProject(req.params.id);
+
+        if (!(await ensureCanManage(project, req.user.userId, res, "archive projects"))) {
+            return;
+        }
+
+        const { archived } = req.body;
+
+        if (typeof archived !== "boolean") {
+            return res.status(400).json({
+                message: "archived must be true or false"
+            });
+        }
+
+        project.archived = archived;
+        await project.save();
+
+        res.json({
+            message: archived ? "Project archived" : "Project unarchived",
+            project
+        });
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to update project",
             error: error.message
         });
     }

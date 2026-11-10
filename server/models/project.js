@@ -38,6 +38,19 @@ const projectSchema = new mongoose.Schema(
             trim: true
         },
 
+        // What "archived" means:
+        //   false -> a normal, open project.
+        //   true  -> CLOSED, not deleted. It drops out of the normal project
+        //            switcher and out of search by default, but every task,
+        //            comment and membership is kept, and it still opens
+        //            fully if someone goes to it directly. Unarchiving just
+        //            flips this back. Projects with history are never
+        //            hard-deleted by the admin panel.
+        archived: {
+            type: Boolean,
+            default: false
+        },
+
         // Replaces the old single "owner" field.
         // A project is shared by everyone in this list.
         members: {

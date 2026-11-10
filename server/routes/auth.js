@@ -6,6 +6,11 @@ import User from "../models/user.js";
 import validate from "../middleware/validate.js";
 import authMiddleware, { adminOnly } from "../middleware/authMiddleware.js";
 import {
+    loginLockout,
+    recordFailedLogin,
+    clearFailedLogins
+} from "../middleware/loginLimiter.js";
+import {
     signupSchema,
     loginSchema
 } from "../validators/authValidator.js";
@@ -59,6 +64,7 @@ router.post(
 router.post(
     "/login",
     validate(loginSchema),
+    loginLockout,
     async (req, res) => {
         try {
             const { email, password } = req.body;
@@ -66,6 +72,9 @@ router.post(
             const user = await User.findOne({ email });
 
             if (!user) {
+                // Unknown emails are counted too, so the lockout does not
+                // reveal which emails exist
+                recordFailedLogin(email);
                 return res.status(400).json({
                     message: "Invalid email or password"
                 });
@@ -77,8 +86,22 @@ router.post(
             );
 
             if (!isPasswordCorrect) {
+                recordFailedLogin(email);
                 return res.status(400).json({
                     message: "Invalid email or password"
+                });
+            }
+
+            // Correct password: forget earlier failed attempts
+            clearFailedLogins(email);
+
+            // Deactivated accounts cannot log in. Checked only after the
+            // password is right, so strangers cannot probe which emails
+            // are deactivated.
+            if (user.active === false) {
+                return res.status(403).json({
+                    message:
+                        "This account has been deactivated. Please contact an admin."
                 });
             }
 
@@ -144,6 +167,13 @@ router.post("/google", async (req, res) => {
             await user.save();
         }
 
+        if (user.active === false) {
+            return res.status(403).json({
+                message:
+                    "This account has been deactivated. Please contact an admin."
+            });
+        }
+
         const token = jwt.sign(
             {
                 userId: user._id,
@@ -176,7 +206,7 @@ router.post("/google", async (req, res) => {
 // Get all users (admin only)
 router.get("/users", authMiddleware, adminOnly, async (req, res) => {
     try {
-        const users = await User.find({}, "name email role");
+        const users = await User.find({}, "name email role active");
         res.json(users);
     } catch (error) {
         res.status(500).json({
@@ -237,6 +267,70 @@ router.patch("/users/:id/role", authMiddleware, adminOnly, async (req, res) => {
     } catch (error) {
         res.status(500).json({
             message: "Failed to update role",
+            error: error.message
+        });
+    }
+});
+
+// Deactivate / reactivate a user (admin only).
+// Nothing is deleted: tasks, comments and memberships stay as they were.
+router.patch("/users/:id/active", authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const { active } = req.body;
+
+        if (typeof active !== "boolean") {
+            return res.status(400).json({
+                message: "active must be true or false"
+            });
+        }
+
+        // Own account cannot be deactivated
+        if (req.params.id === req.user.userId) {
+            return res.status(400).json({
+                message: "You can't deactivate your own account"
+            });
+        }
+
+        const targetUser = await User.findById(req.params.id);
+
+        if (!targetUser) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        // Same rule as the role change: the last admin cannot be removed.
+        // Here it means: at least one OTHER active admin must remain.
+        if (targetUser.role === "admin" && active === false) {
+            const otherActiveAdmins = await User.countDocuments({
+                role: "admin",
+                active: { $ne: false },
+                _id: { $ne: targetUser._id }
+            });
+
+            if (otherActiveAdmins < 1) {
+                return res.status(400).json({
+                    message: "At least one active admin is required"
+                });
+            }
+        }
+
+        targetUser.active = active;
+        await targetUser.save();
+
+        res.json({
+            message: active ? "User reactivated" : "User deactivated",
+            user: {
+                id: targetUser._id,
+                name: targetUser.name,
+                email: targetUser.email,
+                role: targetUser.role,
+                active: targetUser.active
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            message: "Failed to update user",
             error: error.message
         });
     }

@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import User from "../models/user.js";
 
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
 
@@ -17,6 +17,22 @@ const authMiddleware = (req, res, next) => {
             token,
             process.env.JWT_SECRET
         );
+
+        // A deactivated (or deleted) account must stop working immediately,
+        // even if its token has not expired yet. Checked on every request.
+        const account = await User.findById(decoded.userId).select("active");
+
+        if (!account) {
+            return res.status(401).json({
+                message: "Invalid or expired token"
+            });
+        }
+
+        if (account.active === false) {
+            return res.status(401).json({
+                message: "This account has been deactivated"
+            });
+        }
 
         req.user = decoded;
 

@@ -6,6 +6,11 @@ import User from "../models/user.js";
 import validate from "../middleware/validate.js";
 import authMiddleware, { adminOnly } from "../middleware/authMiddleware.js";
 import {
+    loginLockout,
+    recordFailedLogin,
+    clearFailedLogins
+} from "../middleware/loginLimiter.js";
+import {
     signupSchema,
     loginSchema
 } from "../validators/authValidator.js";
@@ -59,6 +64,7 @@ router.post(
 router.post(
     "/login",
     validate(loginSchema),
+    loginLockout,
     async (req, res) => {
         try {
             const { email, password } = req.body;
@@ -66,6 +72,9 @@ router.post(
             const user = await User.findOne({ email });
 
             if (!user) {
+                // Unknown emails are counted too, so the lockout does not
+                // reveal which emails exist
+                recordFailedLogin(email);
                 return res.status(400).json({
                     message: "Invalid email or password"
                 });
@@ -77,10 +86,14 @@ router.post(
             );
 
             if (!isPasswordCorrect) {
+                recordFailedLogin(email);
                 return res.status(400).json({
                     message: "Invalid email or password"
                 });
             }
+
+            // Correct password: forget earlier failed attempts
+            clearFailedLogins(email);
 
             // Deactivated accounts cannot log in. Checked only after the
             // password is right, so strangers cannot probe which emails

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import CommentThread from "./CommentThread";
 
 function TaskDetailDialog({ task, onClose, onUpdateField, onAddSubtask, onToggleSubtask, onDeleteSubtask }) {
   const dialogRef = useRef(null);
@@ -166,6 +167,8 @@ function TaskDetailDialog({ task, onClose, onUpdateField, onAddSubtask, onToggle
             </div>
           ))}
         </div>
+
+        <CommentThread key={task.id} taskId={task.id} />
       </div>
     </dialog>
   );

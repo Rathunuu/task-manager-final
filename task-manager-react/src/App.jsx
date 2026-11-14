@@ -8,6 +8,8 @@ import LoginPage from "./LoginPage";
 import SignupPage from "./SignupPage";
 import AdminDashboard from "./AdminDashboard";
 import MembersPanel from "./MembersPanel";
+import SearchPanel from "./SearchPanel";
+import NotificationBell from "./NotificationBell";
 import { apiRequest } from "./api";
 import { getCurrentUser, getCurrentUserRole, logoutUser } from "./auth";
 
@@ -950,6 +952,40 @@ function App() {
   const role =
     getCurrentUserRole();
 
+  // ---------- OPEN A TASK FROM A SEARCH RESULT OR A NOTIFICATION ----------
+
+  async function handleOpenTaskFromLink(projectId, taskId) {
+    try {
+      let projectList = projects;
+
+      // The task may be new to this screen (just assigned, or just added to
+      // its project), so reload the data first
+      if (!tasks.some((task) => task.id === taskId)) {
+        const [projectsData, tasksData] = await Promise.all([
+          apiRequest("/projects"),
+          apiRequest("/tasks"),
+        ]);
+
+        projectList = projectsData.map(normalizeProject);
+        setProjects(projectList);
+        setTasks(tasksData.map(normalizeTask));
+      }
+
+      // Archived projects are not in the switcher, so only switch to a
+      // project that is
+      if (
+        projectId &&
+        projectList.some((project) => project.id === projectId)
+      ) {
+        setActiveProjectId(projectId);
+      }
+
+      setActiveDetailTaskId(taskId);
+    } catch (error) {
+      handleApiError(error);
+    }
+  }
+
   // ---------- UI ----------
 
   return (
@@ -972,6 +1008,10 @@ function App() {
           </div>
 
           <div className="flex items-center gap-3">
+
+            <NotificationBell
+              onOpenNotification={handleOpenTaskFromLink}
+            />
 
             <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm text-sm">
 
@@ -1019,6 +1059,11 @@ function App() {
             Loading your projects and tasks...
           </div>
         )}
+
+        <SearchPanel
+          projects={projects}
+          onOpenResult={handleOpenTaskFromLink}
+        />
 
         <ProjectSwitcher
           projects={projects}

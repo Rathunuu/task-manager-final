@@ -4,6 +4,7 @@ import Project from "../models/project.js";
 import User from "../models/user.js";
 import authMiddleware, { adminOnly } from "../middleware/authMiddleware.js";
 import validate from "../middleware/validate.js";
+import { notify } from "../utils/notify.js";
 import {
     projectCreateSchema,
     projectUpdateSchema
@@ -309,6 +310,17 @@ router.post(
 
             project.members.push({ user: userToAdd._id, role: "member" });
             await project.save();
+
+            // Tell exactly the person who was added (never the one adding)
+            const adder = await User.findById(req.user.userId).select("name");
+
+            await notify({
+                users: [userToAdd._id],
+                actor: req.user.userId,
+                type: "added_to_project",
+                message: `${adder ? adder.name : "Someone"} added you to the project "${project.name}"`,
+                project: project._id
+            });
 
             await project.populate("members.user", "name email");
 

@@ -3,6 +3,7 @@ import Task from "../models/Task.js";
 import User from "../models/user.js";
 import authMiddleware, { adminOnly } from "../middleware/authMiddleware.js";
 import validate from "../middleware/validate.js";
+import { notify } from "../utils/notify.js";
 import {
     loadProject,
     canWorkInProject,
@@ -14,6 +15,13 @@ import {
 } from "../validators/taskvalidator.js";
 
 const router = express.Router();
+
+// Name of the person doing the action, for notification messages
+async function nameOf(userId) {
+    const user = await User.findById(userId).select("name");
+
+    return user ? user.name : "Someone";
+}
 
 // ADMIN: all users with their tasks + progress
 router.get("/admin/overview", authMiddleware, adminOnly, async (req, res) => {
@@ -117,10 +125,12 @@ router.post("/admin/assign", authMiddleware, adminOnly, async (req, res) => {
 
         // Add every assignee to the real project (skip existing members)
         let newlyAdded = 0;
+        const newMemberIds = [];
 
         for (const userId of userIds) {
             if (!targetProject.isMember(userId)) {
                 targetProject.members.push({ user: userId, role: "member" });
+                newMemberIds.push(userId);
                 newlyAdded++;
             }
         }
@@ -144,6 +154,28 @@ router.post("/admin/assign", authMiddleware, adminOnly, async (req, res) => {
             });
 
             createdTasks.push(task);
+        }
+
+        // Notifications: people newly added to the project, and every assignee
+        const adminName = await nameOf(req.user.userId);
+
+        await notify({
+            users: newMemberIds,
+            actor: req.user.userId,
+            type: "added_to_project",
+            message: `${adminName} added you to the project "${targetProject.name}"`,
+            project: targetProject._id
+        });
+
+        for (const task of createdTasks) {
+            await notify({
+                users: [task.assignedTo],
+                actor: req.user.userId,
+                type: "assignment",
+                message: `${adminName} assigned you "${task.title}"`,
+                task: task._id,
+                project: targetProject._id
+            });
         }
 
         res.status(201).json({
@@ -219,6 +251,17 @@ router.post(
                 createdBy: req.user.userId
             });
 
+            if (task.assignedTo) {
+                await notify({
+                    users: [task.assignedTo],
+                    actor: req.user.userId,
+                    type: "assignment",
+                    message: `${await nameOf(req.user.userId)} assigned you "${task.title}"`,
+                    task: task._id,
+                    project: task.project
+                });
+            }
+
             res.status(201).json({
                 message: "Task created successfully",
                 task
@@ -291,6 +334,21 @@ router.put(
                     runValidators: true
                 }
             );
+
+            // Tell the new assignee, but only if the assignee really changed
+            if (
+                task.assignedTo &&
+                String(task.assignedTo) !== String(existing.assignedTo)
+            ) {
+                await notify({
+                    users: [task.assignedTo],
+                    actor: req.user.userId,
+                    type: "assignment",
+                    message: `${await nameOf(req.user.userId)} assigned you "${task.title}"`,
+                    task: task._id,
+                    project: task.project
+                });
+            }
 
             res.json({
                 message: "Task updated successfully",
